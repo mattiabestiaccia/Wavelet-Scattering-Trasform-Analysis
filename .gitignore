@@ -4,4 +4,5 @@ examples/
 # script/
 vegetation_data/
 wavelet_venv/
+!wavelet_venv/requirements.txt
 # OpenSlide.pdf
