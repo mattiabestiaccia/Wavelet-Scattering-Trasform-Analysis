@@ -3,6 +3,11 @@ elaborations/
 examples/
 # script/
 vegetation_data/
-wavelet_venv/
+
+# Esclude tutta la cartella wavelet_venv
+wavelet_venv/*
+
+# Ma include il file requirements.txt nella cartella
 !wavelet_venv/requirements.txt
+
 # OpenSlide.pdf
