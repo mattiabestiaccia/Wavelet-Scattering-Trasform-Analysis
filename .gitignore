@@ -1,7 +1,7 @@
 datasets/
 elaborations/
 examples/
-script/
+# script/
 vegetation_data/
 wavelet_venv/
-OpenSlide.pdf
+# OpenSlide.pdf
