@@ -1,5 +1,20 @@
+#!/usr/bin/env python3
 import sys
 import os
+import argparse
+
+# Aggiungi il percorso dei packages dell'ambiente virtuale
+venv_site_packages = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'wavelet_venv', 'lib', 'python3.12', 'site-packages')
+if os.path.exists(venv_site_packages) and venv_site_packages not in sys.path:
+    sys.path.insert(0, venv_site_packages)
+    print(f"Aggiunto al path: {venv_site_packages}")
+
+# Aggiungi la directory radice del progetto al path per trovare wavelet_lib
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+    print(f"Aggiunto al path: {project_root}")
+
 import torch
 from torch.utils.data import DataLoader, Dataset, Subset
 from torch.optim import Adam
@@ -12,6 +27,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import signal
+from wavelet_lib.models import TileWaveletClassifier
 
 # Configurazioni
 class Config:
@@ -21,7 +37,7 @@ class Config:
     PATIENCE = 10
     NUM_CLASSES = 7
     INPUT_SHAPE = (3, 81, 8, 8)
-    SAVE_DIR = "model_output"
+    SAVE_DIR = "model_output_4 classes"
     CHECKPOINT_FILE = os.path.join(SAVE_DIR, "checkpoint.pth")
     BEST_MODEL_FILE = os.path.join(SAVE_DIR, "best_model.pth")
     FINAL_MODEL_FILE = os.path.join(SAVE_DIR, "final_model.pth")
@@ -96,48 +112,21 @@ class LoadedTileDataset(Dataset):
         image = self.wavelet_representations[filepath]
         return (image - self.mean) / self.std, label
 
-# Modello CNN
-class WaveletCNN(nn.Module):
-    def __init__(self, num_classes=7):
-        super().__init__()
-        
-        self.initial_reshape = nn.Flatten(start_dim=1, end_dim=2)
-        
-        self.features = nn.Sequential(
-            nn.Conv2d(243, 128, 3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            
-            nn.Conv2d(128, 256, 3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            
-            nn.Conv2d(256, 512, 3, padding=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d(1)
-        )
-        
-        self.classifier = nn.Sequential(
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(256, num_classes)
-        )
-    
-    def forward(self, x):
-        x = self.initial_reshape(x)
-        x = self.features(x)
-        return self.classifier(x.view(x.size(0), -1))
-
 # Funzioni di training
 def train_epoch(model, loader, optimizer, criterion, device):
     model.train()
     total_loss, correct, total = 0, 0, 0
     
     for data, target in tqdm(loader, desc='Training'):
+        # Stampa la forma dei dati
+        print(f"Forma dei dati originale: {data.shape}")
+        
+        # Riorganizza i dati: da [batch, channels, coeffs, h, w] a [batch, channels*coeffs, h, w]
+        batch_size, channels, coeffs, h, w = data.shape
+        data = data.view(batch_size, channels * coeffs, h, w)
+        
+        print(f"Forma dei dati riorganizzata: {data.shape}")
+        
         data, target = data.to(device), target.to(device)
         
         optimizer.zero_grad()
@@ -158,6 +147,10 @@ def evaluate(model, loader, criterion, device):
     
     with torch.no_grad():
         for data, target in loader:
+            # Riorganizza i dati: da [batch, channels, coeffs, h, w] a [batch, channels*coeffs, h, w]
+            batch_size, channels, coeffs, h, w = data.shape
+            data = data.view(batch_size, channels * coeffs, h, w)
+            
             data, target = data.to(device), target.to(device)
             output = model(data)
             total_loss += criterion(output, target).item() * target.size(0)
@@ -199,11 +192,20 @@ def main(resume=False):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     os.makedirs(Config.SAVE_DIR, exist_ok=True)
     
+    # Percorso al dataset processato
+    dataset_path = "/home/brus/Projects/wavelet/datasets/HPL_images/custom_datasets_WST/processed_tile_dataset.pkl"
+    
+    # Se il dataset non esiste, mostra un messaggio e termina
+    if not os.path.exists(dataset_path):
+        print(f"ERRORE: Il dataset {dataset_path} non esiste.")
+        print("Prima di eseguire questo script, è necessario creare il dataset processato.")
+        return
+    
     # Registra handler per interrupt
     signal.signal(signal.SIGINT, handle_interrupt)
     
     # Carica dataset (sempre da capo per consistenza)
-    dataset = LoadedTileDataset("/home/brus/Projects/wavelet/datasets/processed_datasets/processed_tile_dataset.pkl")
+    dataset = LoadedTileDataset(dataset_path)
     
     # Split dataset (deve essere sempre lo stesso)
     train_idx, test_idx = train_test_split(
@@ -226,7 +228,16 @@ def main(resume=False):
                            pin_memory=True)
 
     # Inizializza modello e ottimizzatore
-    model = WaveletCNN(num_classes=Config.NUM_CLASSES).to(device)
+    scattering_params = {
+        'J': 2,
+        'shape': (8, 8),
+        'max_order': 2
+    }
+    # Calcola il numero di canali corretto: 3 (RGB) * 81 (coefficienti)
+    in_features = 3 * 81
+    
+    # Modifico l'istanziazione del modello
+    model = TileWaveletClassifier(scattering_params, num_classes=Config.NUM_CLASSES, in_channels=in_features).to(device)
     optimizer = Adam(model.parameters(), lr=Config.LEARNING_RATE)
     criterion = nn.CrossEntropyLoss()
     scheduler = ReduceLROnPlateau(optimizer, 'min', patience=5, verbose=True)
@@ -336,7 +347,6 @@ def main(resume=False):
     print(f"Risultati salvati in: {os.path.abspath(Config.SAVE_DIR)}")
 
 if __name__ == '__main__':
-    import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--resume', action='store_true', help='Ripristina training da checkpoint')
     args = parser.parse_args()

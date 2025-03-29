@@ -13,25 +13,25 @@ from torch.nn import (
 )
 
 
-class WaveletSegmenter(BaseWaveletModel):
-    """Modello per segmentazione basato su wavelet"""
-    def __init__(self, scattering_params, num_classes=1):
-        super().__init__(scattering_params)
-        self.decoder = self._build_decoder()
+# class WaveletSegmenter(BaseWaveletModel):
+#     """Modello per segmentazione basato su wavelet"""
+#     def __init__(self, scattering_params, num_classes=1):
+#         super().__init__(scattering_params)
+#         self.decoder = self._build_decoder()
     
-    def forward(self, x):
-        coeffs = self.scattering(x)
-        return self.decoder(coeffs)
+#     def forward(self, x):
+#         coeffs = self.scattering(x)
+#         return self.decoder(coeffs)
 
-class WaveletClassifier(BaseWaveletModel):
-    """Modello per classificazione basato su wavelet"""
-    def __init__(self, scattering_params, num_classes):
-        super().__init__(scattering_params)
-        self.classifier = self._build_classifier(num_classes)
+# class WaveletClassifier(BaseWaveletModel):
+#     """Modello per classificazione basato su wavelet"""
+#     def __init__(self, scattering_params, num_classes):
+#         super().__init__(scattering_params)
+#         self.classifier = self._build_classifier(num_classes)
     
-    def forward(self, x):
-        coeffs = self.scattering(x)
-        return self.classifier(coeffs)
+#     def forward(self, x):
+#         coeffs = self.scattering(x)
+#         return self.classifier(coeffs)
     
 class TileWaveletClassifier(BaseWaveletModel):
     def __init__(self, scattering_params, num_classes=7, in_channels=3):
@@ -41,12 +41,12 @@ class TileWaveletClassifier(BaseWaveletModel):
         self.build()
         
     def build(self):
-        # Assumiamo che l'input sia [batch, channels, J, H, W]
-        self.K = self.in_channels
+        # Assumiamo che i dati siano già nella forma [batch, channels, H, W]
+        # dove channels = in_channels (es. 3*81 = 243 per RGB con 81 coefficienti)
+        current_in_channels = self.in_channels
         
         cfg = [128, 128, 'M', 256, 256, 'M', 512, 512]
         layers = []
-        current_in_channels = self.K * 8  # Moltiplichiamo per J=2 * 4 (coefficienti wavelet)
         
         for v in cfg:
             if v == 'M':
@@ -64,10 +64,8 @@ class TileWaveletClassifier(BaseWaveletModel):
         self.classifier = nn.Linear(512 * 4, self.num_classes)
 
     def forward(self, x):
-        # x è di dimensione [batch, channels, J, H, W]
+        # x è di dimensione [batch, channels, H, W]
         batch_size = x.size(0)
-        # Riorganizza le dimensioni per il processing
-        x = x.view(batch_size, -1, x.size(-2), x.size(-1))  # Combina channels e J
         
         x = self.features(x)
         x = x.view(batch_size, -1)
