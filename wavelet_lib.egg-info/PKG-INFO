@@ -1,0 +1,10 @@
+Metadata-Version: 2.2
+Name: wavelet_lib
+Version: 0.1
+Requires-Dist: torch
+Requires-Dist: torchvision
+Requires-Dist: pillow
+Requires-Dist: numpy
+Requires-Dist: matplotlib
+Requires-Dist: tqdm
+Dynamic: requires-dist
